@@ -1,7 +1,7 @@
 name: FTIR analysis and tests
 on:
   push:
-    paths: ['data/**', 'ftir_cutoff/**', 'tests/**', 'pyproject.toml', '.github/workflows/**']
+    paths: ['data/**', 'ftir_cutoff/**', 'tests/**', '.github/scripts/**', 'pyproject.toml', '.github/workflows/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -29,3 +29,13 @@ jobs:
           name: ftir-results
           path: results/
           if-no-files-found: warn
+
+  test-auto-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test PR automation with a mocked GitHub API
+        run: node --test tests/test_auto_pr.cjs
