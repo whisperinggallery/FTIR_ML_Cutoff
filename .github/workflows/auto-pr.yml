@@ -1,0 +1,27 @@
+name: Auto-create pull request
+on:
+  push:
+    branches:
+      - 'feat/**'
+      - 'fix/**'
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: auto-pr-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  create-pr:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Create PR if none is open
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const autoPR = require('./.github/scripts/auto-pr.cjs');
+            await autoPR({github, context, core});
