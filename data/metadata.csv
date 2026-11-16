@@ -1,2 +1,15 @@
-sample_id,detector,raw_file,processed_file,human_cutoff_cm1
+﻿sample_id,detector,raw_file,processed_file,human_cutoff_cm1
 DL1_DTGS,DTGS,FIR_DL1.dpt,FIR_DL1.dat,67.50203
+DL1_FIR_Bolo,Bolometer,DL1_FIR_Bolo.dpt,DL1_FIR_Bolo.dat,
+DL1_FR,DTGS,DL1_FR.dpt,DL1_FR.dat,
+DL1_FR_25.09,DTGS,DL1_FR_25.09.dpt,DL1_FR_25.09.dat,
+DL2_FIR_Bolo,Bolometer,DL2_FIR_Bolo.dpt,DL2_FIR_Bolo.dat,
+DL2_FR,DTGS,DL2_FR.dpt,DL2_FR.dat,
+DL2_FR_25.10,DTGS,DL2_FR_25.10.dpt,DL2_FR_25.10.dat,
+DL3_FIR,DTGS,DL3_FIR.dpt,DL3_FIR.dat,
+DL3_FIR_Bolo,Bolometer,DL3_FIR_Bolo.dpt,DL3_FIR_Bolo.dat,
+DL3_FR_25.09,DTGS,DL3_FR_25.09.dpt,DL3_FR_25.09.dat,
+DL4_FIR_Bolo,Bolometer,DL4_FIR_Bolo.dpt,DL4_FIR_Bolo.dat,
+DL4_FR_26.01,DTGS,DL4_FR_26.01.dpt,DL4_FR_26.01.dat,
+Nb2CTx_FR_Back,DTGS,Nb2CTx_FR_Back.dpt,Nb2CTx_FR_Back.dat,
+Nb2CTx_FR_Front,DTGS,Nb2CTx_FR_Front.dpt,Nb2CTx_FR_Front.dat,
