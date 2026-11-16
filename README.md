@@ -50,22 +50,25 @@ python -m pytest -q
 python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01 --smoothing-window 11 --local-window 21
 ```
 
-창 크기는 홀수, 최소 5이며 **파수 폭이 아닌 점 개수**입니다. 파수 간격에 따라 실제 smoothing 폭이 달라집니다. 종료 코드는 0(정상 또는 빈 데이터), 1(시료 오류/미대응 파일), 2(설정·metadata 구조 오류)입니다. 한 시료의 오류가 다른 시료 분석을 막지는 않습니다.
+창 크기는 홀수, 최소 5이며 **파수 폭이 아닌 점 개수**입니다. 파수 간격에 따라 실제 smoothing 폭이 달라집니다. 종료 코드는 0(정상·축 대응 경고 또는 빈 데이터), 1(시료 오류/미대응 파일), 2(설정·metadata 구조 오류)입니다. 한 시료의 오류가 다른 시료 분석을 막지는 않습니다.
 
 ## 3. cutoff와 노이즈 지표의 의미
 
-- 처리된 각 파수를 가장 가까운 원본 파수와 비교합니다. 기본 절대 허용 오차는 0.01 cm⁻¹입니다. 모든 대응점이 원본의 중복 없는 연속 구간이어야 합니다. 재격자화, 누락된 중간 점, 원본 범위 밖의 데이터는 자동 해석하지 않습니다.
-- 처리된 구간의 첫 점 앞에 원본 점이 존재하면 그 첫 파수를 `axis_cutoff_cm1`로 기록합니다. 즉, **남아 있는 가장 낮은 파수**이며 실제 절단 경계는 그 점과 직전 원본 점 사이입니다. 물리적인 신호 품질 임계값을 추정하는 알고리즘은 아닙니다.
-- 원본의 최저 파수까지 남아 있으면 `no_low_frequency_trim` 상태이며 cutoff는 빈 칸입니다. 처리 데이터의 최저 파수를 임의의 cutoff로 쓰지 않습니다.
+- 원본 `.dpt`의 파수 범위와 겹치는 처리 데이터만 축 비교에 사용합니다. MIR·다른 고주파 영역이 결합되어 있어도 전체 `.dat`를 거부하지 않습니다. 비교의 기본 절대 허용 오차는 0.01 cm⁻¹입니다.
+- 처리 파일의 최저 파수는 항상 `cutoff_candidate_cm1`에 기록합니다. y값의 보정이나 차이는 축 판정에 사용하지 않습니다. 후보를 원본 범위에 억지로 맞추거나 보간해서 정답을 만들어 내지 않습니다.
+- **축 검증:** 후보가 원본 범위 안에 있고, 저파수 시작점부터 최소 5개 처리점이 원본의 중복 없는 연속점과 허용 오차 내에서 대응하면 `axis_cutoff_cm1`에 기록합니다. `exact_overlap`은 겹침 전체가 대응하고, `exact_low_frequency_segment`는 저파수 시작 구간만 대응합니다. 후자는 뒤쪽 결합·격자 변경 가능성을 메시지와 로그에 알립니다. 5점은 짧은 우연 일치를 피하기 위한 운영 기준이며 통계적 신뢰도는 아닙니다.
+- 이때 cutoff는 **남아 있는 가장 낮은 파수**입니다. 절단 경계는 그 점과 직전 원본 점 사이입니다(`cutoff_raw_lower_cm1`, `cutoff_raw_upper_cm1`). `axis_verified`는 축 경계를 확인했다는 뜻이며, 물리적 노이즈 한계나 파일의 실험적 동일성을 검증했다는 뜻은 아닙니다.
+- **보간·불일치 축:** `resampled_or_unmatched`, `candidate_only`, `warning`으로 기록하고 `axis_cutoff_cm1`은 비웁니다. 최소 파수 후보와 원본의 양옆 파수는 보관하지만, 두 축만으로 보간 여부나 정확한 cutoff를 증명할 수 없으므로 사람이 확인해야 합니다. 이 경고는 분석 실패로 종료하지 않습니다.
+- 겹침 없음(`no_overlap`), 5점 미만 겹침(`insufficient_overlap`), 처리 최저 파수가 원본보다 낮음(`extends_below_raw`)도 경고를 남기고 노이즈 CSV와 PNG를 저장합니다. 원본 저파수 끝까지 정확히 남아 있으면 `no_low_frequency_trim`이며 검증 cutoff는 빈 칸입니다.
 - smoothing: 원본 파수 좌표에서 이동 창의 2차 다항식 최소제곱 적합. 불균일한 파수 간격도 지원합니다. 점이 부족하면 smoothing 창을 가장 큰 가능한 홀수로 줄입니다. 끝에서는 창을 안쪽으로 이동합니다.
 - residual = 원본 − smoothing. Local RMS = 주변 창 residual의 제곱 평균의 제곱근입니다. Local slope = 주변 창의 smoothing 값에 대한 파수 기준 선형 회귀 기울기입니다. local 창은 양 끝에서 짧아집니다.
 - RMS는 잔차 지표입니다. 실제 흡수 피크와 smoothing 설정의 영향도 받으므로 순수한 검출기 노이즈나 측정 불확도로 해석하지 마세요. 자동 품질 cutoff 결정은 수행하지 않습니다.
 
 ## 4. 결과 확인
 
-- `results/summary.csv`: 시료별 detector, 상태, 오류 이유, 축 범위, cutoff, 사람 선택값, 대응 오차, 점 개수와 창 설정.
+- `results/summary.csv`: 시료별 detector, 상태, 오류 이유, 축 범위, cutoff, 사람 선택값, 대응 방식·확실성, 겹침 구간, 연속 대응 점 개수, 대응 오차, 점 개수와 창 설정. `axis_match_max_error_cm1`은 겹침 전체의 최근접 축 오차이고, `low_frequency_match_max_error_cm1`은 저파수 연속 대응 구간의 오차입니다. 둘 다 반사율이나 물리적 cutoff의 오차막대가 아닙니다.
 - `results/run-*/시료명_diagnostics.csv`: 각 파수의 원본, smoothing, residual, RMS, slope.
-- `results/run-*/시료명.png`: 원본·smoothing, RMS, slope의 세 패널. 빨간 점선은 축 cutoff, 초록 점선은 사람 선택값입니다. 처리 반사율은 별도 오른쪽 y축의 회색 선으로 표시합니다.
+- `results/run-*/시료명.png`: 원본·smoothing, RMS, slope의 세 패널. 빨간 점선은 축 검증 cutoff, 주황 점선은 미검증 후보, 초록 점선은 사람 선택값입니다. x축은 원본의 FIR 범위로 제한하여 결합된 MIR 때문에 저파수 그래프가 압축되지 않도록 합니다. 전체 처리 데이터의 파수 범위는 summary에 기록합니다. 처리 반사율은 별도 오른쪽 y축의 회색 선으로 표시합니다.
 
 매 실행마다 별도 run 폴더를 만들어 이전 PNG와 구별합니다. summary.csv는 최신 실행으로 덮어씁니다. 오래된 run 폴더는 필요에 따라 삭제하세요. `results/`는 Git에 커밋하지 않습니다.
 

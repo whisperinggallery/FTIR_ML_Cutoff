@@ -145,6 +145,6 @@ Unregister-ScheduledTask -TaskName 'FTIR-Sync-실제ID' -Confirm:$false
 - **전용 Clone의 미커밋 변경:** `git status`로 확인하세요. 자동화가 사용자 변경을 커밋하거나 지우지 않습니다. 필요한 작업을 별도로 보관하고 Git 상태를 정리하세요.
 - **로컬의 예상치 못한 커밋·원격 동시 변경:** 자동 실행을 중지하고 `git status`, `git log --oneline --graph --all -10`을 확인하세요. 프로그램은 원격을 fetch하고 fast-forward 가능한 변경만 받으며, 자동 rebase·충돌 해결·reset --hard는 하지 않습니다. 실패한 Push 뒤 원격에도 새 커밋이 생겼다면 사람이 먼저 이력을 통합해야 합니다. Git이 익숙하지 않다면 Clone을 보존하고 도움을 요청하세요. 원본 측정 폴더를 지우지 마세요.
 - **커밋 전 오류:** 이 실행이 쓴 데이터만 이전 상태로 복원합니다. Push 실패 시에는 이미 생성된 로컬 커밋을 유지합니다. 디스크 오류·강제 종료로 복원이 불가능하면 다음 실행은 dirty 상태를 감지하고 중단합니다. 자동 삭제나 강제 복구를 하지 않습니다.
-- **동기화는 되지만 Actions 실패:** metadata 파일 대응, 스펙트럼 형식, 파수축 연속 구간 조건을 기존 README와 Actions의 summary.csv에서 확인하세요. 동기화는 두 파일의 과학적 대응까지 추정하지 않습니다.
+- **동기화는 되지만 Actions 실패:** metadata 파일 대응, 스펙트럼 형식, 파수축 겹침·대응 경고를 기존 README와 Actions의 summary.csv에서 확인하세요. 동기화는 두 파일의 과학적 대응까지 추정하지 않습니다.
 
 코드를 업데이트할 때는 예약 실행을 중지하고 전용 Clone이 깨끗한지 확인한 후 `git pull --ff-only`와 `.\.venv\Scripts\python.exe -m pip install -e .`을 실행하고 다시 활성화하세요.
