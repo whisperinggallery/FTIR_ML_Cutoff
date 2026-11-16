@@ -16,12 +16,18 @@ jobs:
           python-version: '3.12'
       - name: Install
         id: install
-        run: python -m pip install -e '.[test]'
+        run: python -m pip install -e '.[test,ml]'
       - name: Test
         run: python -m pytest -q
       - name: Analyze uploaded data
         if: ${{ !cancelled() && steps.install.outcome != 'failure' }}
         run: python -m ftir_cutoff
+      - name: Evaluate raw-only features and baselines (preliminary)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python -m ftir_cutoff.ml evaluate --baselines-only --output-dir results/ml_baselines
+      - name: Compare Random Forest with baselines (preliminary)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python -m ftir_cutoff.ml evaluate --output-dir results/ml
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

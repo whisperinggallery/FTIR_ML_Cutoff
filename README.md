@@ -1,6 +1,6 @@
 # FTIR reflectance cutoff 자동 분석
 
-원본 상대 반사율(`.dpt`)과 보정·절단된 반사율(`.dat`)의 **파수축**을 비교하여 저파수 cutoff를 기록하는 Python 프로그램입니다. 원본 smoothing, local RMS noise, local slope를 계산하고 CSV와 PNG로 저장합니다. 머신러닝 학습 기능은 포함하지 않습니다.
+원본 상대 반사율(`.dpt`)과 보정·절단된 반사율(`.dat`)의 **파수축**을 비교하여 저파수 cutoff를 기록하는 Python 프로그램입니다. 원본 smoothing, local RMS noise, local slope를 계산하고 CSV와 PNG로 저장합니다. 기존 분석에 더해 선택적으로 첫 Random Forest 예비 모델을 평가하고 새 원본의 cutoff를 예측할 수 있습니다.
 
 ## 1. 파일 준비
 
@@ -93,4 +93,30 @@ python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01
 
 기존 분석 실행 시 `results/training_labels.csv`와 `results/training_groups.csv`를 자동 생성하며, GitHub Actions Artifacts에도 함께 포함합니다. 원본 `.dpt`의 파수·반사율 숫자가 같은 기록을 하나의 그룹으로 만들고 **검증된 cutoff의 최댓값**만 regression 정답으로 선택합니다. 낮은 값은 `superseded`, 불확실한 값은 `needs_review`로 남깁니다. 기존 입력 데이터는 보존합니다.
 
-학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 모델 학습 기능은 포함하지 않습니다.
+학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 이 정답 생성 단계 자체는 모델을 학습하지 않습니다. 별도 모델 실행은 아래 8절을 참고하세요.
+
+
+## 8. 첫 번째 머신러닝 cutoff 예측 (예비 실험)
+
+원본 `.dpt`와 detector만으로 normalized RMS·slope·slope variation feature를 추출하고, detector 평균 baseline 및 고정 노이즈 규칙을 먼저 평가한 뒤 Random Forest Regression과 비교합니다. 기존 학습 정답 중 `use_for_regression=true`인 원본 그룹만 사용하며, 처리된 `.dat`와 cutoff 정답은 feature에 포함하지 않습니다.
+
+0–50, 50–100, 100–150, 150–200 cm⁻¹의 고정 구간마다 세 지표의 중앙값·90백분위수를 계산하고 detector를 더해 총 25개 feature를 사용합니다. 반사율이 1에 수렴한다는 가정은 사용하지 않습니다.
+
+| Feature | 역할 |
+| --- | --- |
+| normalized local RMS | 잔차 RMS / local 반사율 크기: 상대적인 흔들림 |
+| absolute normalized slope | 기울기 절댓값 / local 반사율 크기: 상대적인 변화율 |
+| normalized slope variation | 주변 기울기의 표준편차 / local 반사율 크기: 변화의 불규칙성 |
+| detector_bolometer | DTGS=0, Bolometer=1로 detector 정보 제공 |
+
+Detector 평균은 학습 fold의 동일 detector 정답 평균을 내는 단순 baseline입니다. 노이즈 규칙은 고정 임계값 이하의 안정 구간 시작점을 찾습니다. Random Forest는 25개 feature와 cutoff 사이의 관계를 학습합니다. 세 모델은 같은 원본 그룹 기준 Leave-One-Group-Out 분할로 비교하며, 결측값 대체도 학습 fold 안에서만 수행합니다.
+
+```bash
+python -m pip install -e ".[test,ml]"
+python -m ftir_cutoff
+python -m ftir_cutoff.ml evaluate --baselines-only --output-dir results/ml_baselines
+python -m ftir_cutoff.ml evaluate --output-dir results/ml
+python -m pytest -q
+```
+
+GitHub Actions도 위 순서로 실행하며, Artifacts의 `ml/`에서 CSV, scatter plot, 시료별 오차 PNG, 예비 모델을 받을 수 있습니다. **현재는 정답 9개뿐인 LOGO 예비 실험**입니다. 모델의 예측을 검증된 cutoff로 자동 등록하지 않습니다. feature 정의, 누출 방지, 평가 한계, 실제 결과 및 새 원본 예측법은 **[첫 ML 모델 안내](docs/first-ml-model.md)**를 확인하세요.
