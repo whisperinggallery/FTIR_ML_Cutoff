@@ -94,3 +94,35 @@ python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01
 기존 분석 실행 시 `results/training_labels.csv`와 `results/training_groups.csv`를 자동 생성하며, GitHub Actions Artifacts에도 함께 포함합니다. 원본 `.dpt`의 파수·반사율 숫자가 같은 기록을 하나의 그룹으로 만들고 **검증된 cutoff의 최댓값**만 regression 정답으로 선택합니다. 낮은 값은 `superseded`, 불확실한 값은 `needs_review`로 남깁니다. 기존 입력 데이터는 보존합니다.
 
 학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 모델 학습 기능은 포함하지 않습니다.
+
+## 8. feat/·fix/ 브랜치의 Pull Request 자동 생성
+
+`feat/새기능` 또는 `fix/버그수정` 형태의 브랜치에 Push하면 **Auto-create pull request** 워크플로가 `main`을 대상으로 PR을 생성합니다. 하위 경로가 있는 `feat/windows/sync`도 지원합니다. 기존 열린 PR이 같은 브랜치에 있으면 제목·본문을 덮어쓰거나 새 PR을 만들지 않습니다. main보다 앞선 변경이 없으면 생성하지 않습니다. 자동 Merge는 수행하지 않으므로 Checks와 변경 내용을 사람이 검토한 뒤 병합하세요.
+
+### 저장소 관리자가 한 번 설정할 항목
+
+1. GitHub 저장소의 **Settings → Actions → General**에서 Actions 사용이 허용되어 있는지 확인하세요. 제한된 Actions 정책을 쓰면 `actions/checkout`, `actions/setup-node`, `actions/github-script` 등 이 저장소의 Actions도 허용해야 합니다.
+2. 같은 화면의 **Workflow permissions → Allow GitHub Actions to create and approve pull requests**를 체크하고 **Save**를 누르세요. 이 기능은 PR 생성만 사용하며 승인·병합을 자동 실행하지 않습니다.
+3. 체크박스가 비활성화되어 있거나 설정 후에도 403이 나면 조직·Enterprise의 Actions 정책이 제한하는지 관리자에게 확인하세요. 이 설정은 Codex에서 대신 변경하지 않습니다.
+
+인증은 Actions가 실행할 때 자동 제공하는 `GITHUB_TOKEN`만 사용합니다. 비밀번호·개인 토큰을 코드나 Secrets에 추가할 필요가 없습니다. PR 워크플로는 필요한 **`contents: read`, `pull-requests: write`**만 명시하고 나머지 권한은 부여하지 않습니다. checkout에도 인증 정보를 남기지 않습니다. 전역 Workflow permissions를 모든 항목 쓰기 권한으로 넓히지 않고 워크플로의 최소 권한 선언을 사용합니다.
+
+### 적용과 확인
+
+새 워크플로가 포함된 이 브랜치의 첫 Push부터 실행될 수 있지만, 저장소 권한 설정이 먼저 필요합니다. 이후 다른 feat/fix 브랜치도 최신 main의 워크플로를 포함해야 합니다. 아직 포함되지 않은 오래된 브랜치에는 최신 main을 반영하세요.
+
+1. feat/fix 브랜치에 커밋·Push합니다.
+2. **Actions → Auto-create pull request** 실행에서 생성된 PR URL 또는 기존 PR을 유지했다는 로그를 확인합니다.
+3. **FTIR analysis and tests**의 Python 분석·정답 생성·Windows 동기화 테스트와 별도 `test-auto-pr` 작업의 Node.js 테스트를 확인합니다. `.github/scripts/` 변경도 이 검증을 실행합니다. PR 생성 작업과 코드 검증은 서로 독립적으로 실행되므로 PR 생성 성공이 테스트 통과를 뜻하지 않습니다.
+
+자동 제공된 GITHUB_TOKEN이 생성한 PR은 보통 다른 `pull_request` 워크플로를 다시 시작하지 않습니다. 코드 검증은 기존 **Push 기반** 분석 워크플로를 사용합니다. 기존 분석 워크플로의 경로 필터(코드·데이터·테스트·의존성·워크플로 등)에 해당하는 변경에서 실행되며, README만 변경한 경우에는 분석을 자동 실행하지 않을 수 있습니다. 필요하면 **FTIR analysis and tests → Run workflow**에서 해당 브랜치를 선택해 실행하세요.
+
+권한 부족 시 PR 생성 작업은 실패로 표시하고 설정 안내·수동 비교 링크를 로그에 남깁니다. 같은 실행 안에서 생성을 반복하지 않습니다. 설정을 수정한 뒤 실패한 작업을 한 번 재실행하거나 새 Push를 하세요. 기존 FTIR 분석과 Windows 데이터 동기화 기능은 PR 생성 실패와 무관하게 유지됩니다.
+
+로컬 검증 명령:
+
+```bash
+python -m pytest -q
+# PR 자동화 테스트에는 Node.js 24가 필요합니다. Windows 데이터 동기화 자체에는 필요 없습니다.
+node --test tests/test_auto_pr.cjs
+```
