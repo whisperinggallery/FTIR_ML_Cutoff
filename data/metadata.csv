@@ -1,1 +1,2 @@
 sample_id,detector,raw_file,processed_file,human_cutoff_cm1
+DL1_DTGS,DTGS,FIR_DL1.dpt,FIR_DL1.dat,67.50203
