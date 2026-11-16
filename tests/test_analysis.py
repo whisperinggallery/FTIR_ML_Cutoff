@@ -1,7 +1,7 @@
 import csv
 import numpy as np
 import pytest
-from ftir_cutoff.cli import axis_cutoff, diagnostics, read_spectrum, run
+from ftir_cutoff.cli import assess_axes, axis_cutoff, diagnostics, read_spectrum, run
 
 
 def fixture_data(tmp_path, **overrides):
@@ -112,13 +112,18 @@ def test_rms_and_slope_definitions():
     assert rms[20] > 0
 
 
-def test_regridded_input_rejected(tmp_path):
+def test_regridded_input_is_unverified_candidate(tmp_path):
     data = fixture_data(tmp_path)
     x = np.arange(120., 201.) + .25
     np.savetxt(data / 'processed/a.dat', np.column_stack((x, np.ones_like(x))))
-    assert run(data, tmp_path / 'out') == 1
-    assert 'contiguous' in summary(tmp_path / 'out')[0]['message']
-    assert not list((tmp_path / 'out').glob('run-*/*.png'))
+    assert run(data, tmp_path / 'out') == 0
+    row = summary(tmp_path / 'out')[0]
+    assert row['status'] == 'warning'
+    assert row['axis_cutoff_cm1'] == ''
+    assert float(row['cutoff_candidate_cm1']) == 120.25
+    assert row['axis_alignment'] == 'resampled_or_unmatched'
+    assert row['cutoff_confidence'] == 'candidate_only'
+    assert list((tmp_path / 'out').glob('run-*/*.png'))
 
 
 def test_duplicate_sample_ids(tmp_path):
@@ -135,3 +140,96 @@ def test_short_spectrum_window_and_headers(tmp_path):
     smooth, rms, slope, effective = diagnostics(x, y)
     assert effective == 5
     np.testing.assert_allclose(smooth, y, atol=1e-12)
+
+
+def test_extended_exact_axis_retains_old_cutoff():
+    x = np.arange(100., 201.)
+    processed = np.r_[x[20:], np.arange(201., 1000.)]
+    assessment = assess_axes(x, processed, .01)
+    assert assessment['axis_cutoff_cm1'] == axis_cutoff(x, x[20:], .01)[0]
+    assert assessment['axis_alignment'] == 'exact_overlap'
+    assert assessment['cutoff_confidence'] == 'axis_verified'
+    assert assessment['overlap_points'] == 81
+
+
+def test_joined_region_after_exact_low_frequency_prefix():
+    x = np.arange(100., 201.)
+    assessment = assess_axes(x, np.r_[x[20:40], np.arange(140.2, 1000., .2)], .01)
+    assert assessment['axis_cutoff_cm1'] == 120
+    assert assessment['axis_alignment'] == 'exact_low_frequency_segment'
+    assert assessment['low_frequency_match_points'] == 20
+    assert 'Only the low-frequency prefix' in assessment['message']
+
+
+@pytest.mark.parametrize('processed,alignment', [
+    (np.arange(300., 400.), 'no_overlap'),
+    (np.arange(90., 150.), 'extends_below_raw'),
+    (np.arange(198., 205.), 'insufficient_overlap'),
+    (np.arange(120.25, 500., .2), 'resampled_or_unmatched'),
+    (np.arange(120., 201., 2), 'resampled_or_unmatched'),
+])
+def test_uncertain_overlap_never_claims_verified_cutoff(processed, alignment):
+    a = assess_axes(np.arange(100., 201.), processed, .01)
+    assert a['status'] == 'warning'
+    assert a['axis_cutoff_cm1'] == ''
+    assert a['axis_alignment'] == alignment
+    assert a['cutoff_candidate_cm1'] == processed[0]
+    assert a['cutoff_confidence'] != 'axis_verified'
+
+
+def test_extended_axis_without_low_frequency_trim():
+    a = assess_axes(np.arange(100., 201.), np.arange(100., 500.), .01)
+    assert a['status'] == 'no_low_frequency_trim'
+    assert a['axis_cutoff_cm1'] == ''
+
+
+def test_unmatched_axes_still_save_diagnostics(tmp_path):
+    data = fixture_data(tmp_path)
+    p = np.arange(300., 400.)
+    np.savetxt(data / 'processed/a.dat', np.column_stack((p, np.ones_like(p))))
+    assert run(data, tmp_path / 'out') == 0
+    assert summary(tmp_path / 'out')[0]['axis_alignment'] == 'no_overlap'
+    assert list((tmp_path / 'out').glob('run-*/*.png'))
+    assert list((tmp_path / 'out').glob('run-*/*_diagnostics.csv'))
+
+
+def test_one_bad_sample_does_not_discard_valid_sample(tmp_path):
+    data = fixture_data(tmp_path)
+    write_metadata(data, [dict(sample_id='broken', detector='Bolometer'),
+                          dict(sample_id='a', detector='DTGS')])
+    assert run(data, tmp_path / 'out') == 1
+    assert [r['status'] for r in summary(tmp_path / 'out')] == ['error', 'ok']
+    assert list((tmp_path / 'out').glob('run-*/a.png'))
+
+
+def test_real_repository_measurements(tmp_path):
+    from pathlib import Path
+    data = Path(__file__).resolve().parents[1] / 'data'
+    expected = {'DL1_FIR_Bolo': 98.36, 'DL2_FIR_Bolo': 94.89,
+                'DL3_FIR_Bolo': 92.57, 'DL4_FIR_Bolo': 91.37}
+    if not all((data / 'raw' / f'{s}.dpt').exists() and
+               (data / 'processed' / f'{s}.dat').exists() for s in expected):
+        pytest.skip('Real Bolometer measurements are not included in this checkout')
+    assert run(data, tmp_path / 'out') == 0
+    rows = {r['sample_id']: r for r in summary(tmp_path / 'out')}
+    for sample, reference in expected.items():
+        row = rows[sample]
+        px, _ = read_spectrum(data / 'processed' / row['processed_file'])
+        assert float(row['cutoff_candidate_cm1']) == px[0]
+        assert float(row['cutoff_candidate_cm1']) == pytest.approx(reference, abs=.01)
+        if sample in ('DL1_FIR_Bolo', 'DL3_FIR_Bolo'):
+            assert row['axis_alignment'] == 'exact_low_frequency_segment'
+            assert float(row['axis_cutoff_cm1']) == px[0]
+        else:
+            assert row['axis_alignment'] == 'resampled_or_unmatched'
+            assert row['axis_cutoff_cm1'] == ''
+            assert row['status'] == 'warning'
+        assert list((tmp_path / 'out').glob(f'run-*/{sample}.png'))
+        assert list((tmp_path / 'out').glob(f'run-*/{sample}_diagnostics.csv'))
+    for row in rows.values():
+        if row['detector'] == 'DTGS':
+            x, _ = read_spectrum(data / 'raw' / row['raw_file'])
+            px, _ = read_spectrum(data / 'processed' / row['processed_file'])
+            old, _ = axis_cutoff(x, px, .01)
+            assert float(row['axis_cutoff_cm1']) == old
+            assert row['axis_alignment'] == 'exact_overlap'

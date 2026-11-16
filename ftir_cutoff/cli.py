@@ -13,7 +13,10 @@ import numpy as np
 FIELDS = ['sample_id', 'detector', 'status', 'message', 'raw_file', 'processed_file',
           'axis_cutoff_cm1', 'human_cutoff_cm1', 'raw_min_cm1', 'raw_max_cm1',
           'processed_min_cm1', 'processed_max_cm1', 'axis_match_max_error_cm1',
-          'raw_points', 'processed_points', 'smoothing_window', 'local_window']
+          'raw_points', 'processed_points', 'smoothing_window', 'local_window',
+          'cutoff_candidate_cm1', 'axis_alignment', 'cutoff_confidence',
+          'overlap_points', 'overlap_min_cm1', 'overlap_max_cm1',
+          'low_frequency_match_points', 'low_frequency_match_max_error_cm1', 'cutoff_raw_lower_cm1', 'cutoff_raw_upper_cm1']
 
 
 def read_spectrum(path):
@@ -53,6 +56,64 @@ def axis_cutoff(raw_x, processed_x, tolerance):
     return float(processed_x[0]), float(errors.max())
 
 
+def assess_axes(raw_x, processed_x, tolerance):
+    """Validate the low-frequency prefix; never equate a resampled grid with proof.
+
+    Coordinate agreement verifies a retained axis boundary, not physical signal
+    quality or the provenance of a corrected reflectance spectrum.
+    """
+    candidate = float(processed_x[0])
+    overlap = processed_x[(processed_x >= raw_x[0] - tolerance) &
+                          (processed_x <= raw_x[-1] + tolerance)]
+    result = dict(cutoff_candidate_cm1=candidate, axis_cutoff_cm1='',
+                  axis_alignment='no_overlap', cutoff_confidence='candidate_only',
+                  overlap_points=len(overlap), overlap_min_cm1='', overlap_max_cm1='',
+                  low_frequency_match_points=0, low_frequency_match_max_error_cm1='', cutoff_raw_lower_cm1='',
+                  cutoff_raw_upper_cm1='', axis_match_max_error_cm1='',
+                  status='warning', message='No overlapping axis range; processed minimum is an unverified candidate only')
+    if not len(overlap):
+        return result
+    result.update(overlap_min_cm1=float(overlap[0]), overlap_max_cm1=float(overlap[-1]))
+    idx = np.searchsorted(raw_x, overlap)
+    right = np.clip(idx, 0, len(raw_x) - 1)
+    left = np.clip(idx - 1, 0, len(raw_x) - 1)
+    nearest = np.where(abs(raw_x[left] - overlap) <= abs(raw_x[right] - overlap), left, right)
+    errors = abs(raw_x[nearest] - overlap)
+    result['axis_match_max_error_cm1'] = float(errors.max())
+    valid = (errors <= tolerance) & np.r_[True, np.diff(nearest) == 1]
+    failures = np.flatnonzero(~valid)
+    prefix = int(failures[0]) if len(failures) else len(overlap)
+    result['low_frequency_match_points'] = prefix
+    if prefix:
+        result['low_frequency_match_max_error_cm1'] = float(errors[:prefix].max())
+    if candidate < raw_x[0] - tolerance:
+        result.update(axis_alignment='extends_below_raw', cutoff_confidence='not_identifiable',
+                      message='Processed minimum is below the raw range; no low-frequency cutoff can be verified')
+        return result
+    if len(overlap) < 5:
+        result.update(axis_alignment='insufficient_overlap',
+                      message='Fewer than 5 overlapping points; processed minimum is an unverified candidate only')
+        return result
+    bracket = int(np.searchsorted(raw_x, candidate))
+    result['cutoff_raw_lower_cm1'] = float(raw_x[max(0, bracket - 1)])
+    result['cutoff_raw_upper_cm1'] = float(raw_x[min(bracket, len(raw_x) - 1)])
+    if prefix >= 5:
+        result['axis_alignment'] = 'exact_overlap' if prefix == len(overlap) else 'exact_low_frequency_segment'
+        if nearest[0] == 0:
+            result.update(status='no_low_frequency_trim', cutoff_confidence='not_identifiable',
+                          message='Processed includes raw low-frequency endpoint; cutoff not identifiable')
+        else:
+            result.update(status='ok', cutoff_confidence='axis_verified', axis_cutoff_cm1=candidate,
+                          cutoff_raw_lower_cm1=float(raw_x[nearest[0] - 1]),
+                          cutoff_raw_upper_cm1=float(raw_x[nearest[0]]), message='')
+        if prefix < len(overlap):
+            result['message'] += ('; ' if result['message'] else '') + 'Only the low-frequency prefix matches; later overlap contains a grid change or joined region'
+    else:
+        result.update(axis_alignment='resampled_or_unmatched',
+                      message='Overlapping grid may be interpolated/resampled or otherwise mismatched; processed minimum is a candidate only, not an axis-verified cutoff')
+    return result
+
+
 def diagnostics(x, y, smoothing_window=11, local_window=21):
     for name, window in [('smoothing', smoothing_window), ('local', local_window)]:
         if window < 5 or window % 2 == 0:
@@ -85,7 +146,7 @@ def resolve_file(root, name, sample, suffix):
     return path
 
 
-def plot_result(path, sample, detector, x, y, px, py, smooth, rms, slope, cutoff, human):
+def plot_result(path, sample, detector, x, y, px, py, smooth, rms, slope, cutoff, human, candidate=None):
     fig, axes = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
     axes[0].plot(x, y, lw=.7, label='Raw relative reflectance')
     axes[0].plot(x, smooth, lw=1, label='Smoothed raw')
@@ -102,9 +163,12 @@ def plot_result(path, sample, detector, x, y, px, py, smooth, rms, slope, cutoff
     for ax in axes:
         if cutoff is not None:
             ax.axvline(cutoff, color='red', ls='--', label='Axis cutoff')
+        if candidate is not None and cutoff is None:
+            ax.axvline(candidate, color='orange', ls='--', label='Unverified candidate')
         if human is not None:
             ax.axvline(human, color='green', ls=':', label='Human cutoff')
         ax.grid(alpha=.2)
+    axes[-1].set_xlim(float(x[0]), float(x[-1]))
     axes[0].legend(loc='upper right', fontsize=8)
     fig.suptitle(f'{sample} | {detector}')
     fig.tight_layout()
@@ -161,19 +225,23 @@ def run(data, output, tolerance=.01, smoothing_window=11, local_window=21):
             used.update((raw, processed))
             x, y = read_spectrum(raw)
             px, py = read_spectrum(processed)
-            cutoff, error = axis_cutoff(x, px, tolerance)
+            assessment = assess_axes(x, px, tolerance)
+            cutoff = assessment['axis_cutoff_cm1']
+            cutoff = None if cutoff == '' else cutoff
             human = float(row['human_cutoff_cm1']) if row.get('human_cutoff_cm1') else None
             if human is not None and (not np.isfinite(human) or not x[0] <= human <= x[-1]):
                 raise ValueError('human cutoff must be finite and inside raw axis range')
             smooth, rms, slope, effective = diagnostics(x, y, smoothing_window, local_window)
             np.savetxt(artifacts / f'{sample}_diagnostics.csv', np.column_stack((x, y, smooth, y-smooth, rms, slope)),
                        delimiter=',', header='wavenumber_cm1,raw_reflectance,smoothed_raw,residual,local_rms,local_slope', comments='')
-            plot_result(artifacts / f'{sample}.png', sample, row['detector'], x, y, px, py, smooth, rms, slope, cutoff, human)
-            result.update(status='ok' if cutoff is not None else 'no_low_frequency_trim',
-                          message='' if cutoff is not None else 'processed includes raw low-frequency endpoint; cutoff not identifiable',
-                          raw_file=raw.name, processed_file=processed.name, axis_cutoff_cm1='' if cutoff is None else cutoff,
+            plot_result(artifacts / f'{sample}.png', sample, row['detector'], x, y, px, py, smooth, rms, slope, cutoff, human,
+                        assessment['cutoff_candidate_cm1'] if assessment['status'] == 'warning' else None)
+            result.update(assessment)
+            if assessment['status'] == 'warning' or assessment['axis_alignment'] == 'exact_low_frequency_segment':
+                print(f"WARNING {sample}: {assessment['message']}", file=sys.stderr)
+            result.update(raw_file=raw.name, processed_file=processed.name,
                           raw_min_cm1=x[0], raw_max_cm1=x[-1], processed_min_cm1=px[0], processed_max_cm1=px[-1],
-                          axis_match_max_error_cm1=error, raw_points=len(x), processed_points=len(px),
+                          raw_points=len(x), processed_points=len(px),
                           smoothing_window=effective, local_window=local_window)
         except (ValueError, OSError, KeyError) as exc:
             result.update(status='error', message=str(exc))
