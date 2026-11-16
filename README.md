@@ -26,7 +26,7 @@ sample02,Bolometer,original02.dpt,corrected02.dat,
 - `raw_file`, `processed_file`: 각 폴더 바로 아래 파일명. 빈 칸이면 정확히 `sample_id.dpt`, `sample_id.dat`만 찾습니다.
 - `human_cutoff_cm1`: 사람이 선택한 파수. 선택 사항이며 원본 파수 범위 안에 있어야 합니다.
 
-유사한 이름으로 파일을 추측하지 않습니다. 동일 파일을 여러 시료에 연결하거나 sample_id가 중복되면 해당 시료는 분석하지 않습니다. metadata에 연결되지 않은 파일도 `unassigned`로 보고합니다. 원본과 처리 데이터의 y값이 달라도 정상입니다.
+유사한 이름으로 파일을 추측하지 않습니다. 동일 처리 파일을 여러 시료에 연결하거나 sample_id가 중복되면 해당 시료는 분석하지 않습니다. 서로 다른 cutoff 이력을 위해 같은 원본 파일을 여러 sample_id가 공유하는 것은 허용합니다. metadata에 연결되지 않은 파일도 `unassigned`로 보고합니다. 원본과 처리 데이터의 y값이 달라도 정상입니다.
 
 ## 2. 설치하고 실행하기
 
@@ -87,3 +87,10 @@ python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01
 서로 다른 위치의 Raw `.dpt`와 Processed `.dat` 폴더를 지정하고, 이름이 일치하는 안정된 파일 쌍을 GitHub로 자동 반영할 수 있습니다. 파일명 `Bolo`로 detector를 판별하고 기존 사람 입력 metadata는 보존합니다. 로컬 삭제는 원격 삭제로 전파하지 않습니다.
 
 **[Windows 설치·GitHub 인증·2분 자동 실행·중지 방법](docs/windows-sync.md)**을 순서대로 따라 하세요. 전용 Clone에서 `scripts/Install-Sync.ps1`을 실행하면 폴더 경로를 입력하고 Windows 작업 스케줄러를 등록할 수 있습니다. Windows 등록은 사용자의 컴퓨터에서 직접 실행해야 합니다.
+
+
+## 7. 머신러닝 학습 정답 정리 (모델 학습 없음)
+
+기존 분석 실행 시 `results/training_labels.csv`와 `results/training_groups.csv`를 자동 생성하며, GitHub Actions Artifacts에도 함께 포함합니다. 원본 `.dpt`의 파수·반사율 숫자가 같은 기록을 하나의 그룹으로 만들고 **검증된 cutoff의 최댓값**만 regression 정답으로 선택합니다. 낮은 값은 `superseded`, 불확실한 값은 `needs_review`로 남깁니다. 기존 입력 데이터는 보존합니다.
+
+학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 모델 학습 기능은 포함하지 않습니다.
