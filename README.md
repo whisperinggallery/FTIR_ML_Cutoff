@@ -1,6 +1,6 @@
 # FTIR reflectance cutoff 자동 분석
 
-원본 상대 반사율(`.dpt`)과 보정·절단된 반사율(`.dat`)의 **파수축**을 비교하여 저파수 cutoff를 기록하는 Python 프로그램입니다. 원본 smoothing, local RMS noise, local slope를 계산하고 CSV와 PNG로 저장합니다. 머신러닝 학습 기능은 포함하지 않습니다.
+원본 상대 반사율(`.dpt`)과 보정·절단된 반사율(`.dat`)의 **파수축**을 비교하여 저파수 cutoff를 기록하는 Python 프로그램입니다. 원본 smoothing, local RMS noise, local slope를 계산하고 CSV와 PNG로 저장합니다. 기존 분석에 더해 선택적으로 첫 Random Forest 예비 모델을 평가하고 새 원본의 cutoff를 예측할 수 있습니다.
 
 ## 1. 파일 준비
 
@@ -93,36 +93,30 @@ python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01
 
 기존 분석 실행 시 `results/training_labels.csv`와 `results/training_groups.csv`를 자동 생성하며, GitHub Actions Artifacts에도 함께 포함합니다. 원본 `.dpt`의 파수·반사율 숫자가 같은 기록을 하나의 그룹으로 만들고 **검증된 cutoff의 최댓값**만 regression 정답으로 선택합니다. 낮은 값은 `superseded`, 불확실한 값은 `needs_review`로 남깁니다. 기존 입력 데이터는 보존합니다.
 
-학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 모델 학습 기능은 포함하지 않습니다.
+학습에 사용할 행은 반드시 `use_for_regression=true`로 필터링하고 `dataset_split`의 그룹 단위 train/test 배정을 따르세요. 상세 규칙·열 설명·실제 데이터 검증은 **[학습 정답 데이터셋 안내](docs/training-labels.md)**를 확인하세요. 이 정답 생성 단계 자체는 모델을 학습하지 않습니다. 별도 모델 실행은 아래 8절을 참고하세요.
 
-## 8. feat/·fix/ 브랜치의 Pull Request 자동 생성
 
-`feat/새기능` 또는 `fix/버그수정` 형태의 브랜치에 Push하면 **Auto-create pull request** 워크플로가 `main`을 대상으로 PR을 생성합니다. 하위 경로가 있는 `feat/windows/sync`도 지원합니다. 기존 열린 PR이 같은 브랜치에 있으면 제목·본문을 덮어쓰거나 새 PR을 만들지 않습니다. main보다 앞선 변경이 없으면 생성하지 않습니다. 자동 Merge는 수행하지 않으므로 Checks와 변경 내용을 사람이 검토한 뒤 병합하세요.
+## 8. 첫 번째 머신러닝 cutoff 예측 (예비 실험)
 
-### 저장소 관리자가 한 번 설정할 항목
+원본 `.dpt`와 detector만으로 normalized RMS·slope·slope variation feature를 추출하고, detector 평균 baseline 및 고정 노이즈 규칙을 먼저 평가한 뒤 Random Forest Regression과 비교합니다. 기존 학습 정답 중 `use_for_regression=true`인 원본 그룹만 사용하며, 처리된 `.dat`와 cutoff 정답은 feature에 포함하지 않습니다.
 
-1. GitHub 저장소의 **Settings → Actions → General**에서 Actions 사용이 허용되어 있는지 확인하세요. 제한된 Actions 정책을 쓰면 `actions/checkout`, `actions/setup-node`, `actions/github-script` 등 이 저장소의 Actions도 허용해야 합니다.
-2. 같은 화면의 **Workflow permissions → Allow GitHub Actions to create and approve pull requests**를 체크하고 **Save**를 누르세요. 이 기능은 PR 생성만 사용하며 승인·병합을 자동 실행하지 않습니다.
-3. 체크박스가 비활성화되어 있거나 설정 후에도 403이 나면 조직·Enterprise의 Actions 정책이 제한하는지 관리자에게 확인하세요. 이 설정은 Codex에서 대신 변경하지 않습니다.
+0–50, 50–100, 100–150, 150–200 cm⁻¹의 고정 구간마다 세 지표의 중앙값·90백분위수를 계산하고 detector를 더해 총 25개 feature를 사용합니다. 반사율이 1에 수렴한다는 가정은 사용하지 않습니다.
 
-인증은 Actions가 실행할 때 자동 제공하는 `GITHUB_TOKEN`만 사용합니다. 비밀번호·개인 토큰을 코드나 Secrets에 추가할 필요가 없습니다. PR 워크플로는 필요한 **`contents: read`, `pull-requests: write`**만 명시하고 나머지 권한은 부여하지 않습니다. checkout에도 인증 정보를 남기지 않습니다. 전역 Workflow permissions를 모든 항목 쓰기 권한으로 넓히지 않고 워크플로의 최소 권한 선언을 사용합니다.
+| Feature | 역할 |
+| --- | --- |
+| normalized local RMS | 잔차 RMS / local 반사율 크기: 상대적인 흔들림 |
+| absolute normalized slope | 기울기 절댓값 / local 반사율 크기: 상대적인 변화율 |
+| normalized slope variation | 주변 기울기의 표준편차 / local 반사율 크기: 변화의 불규칙성 |
+| detector_bolometer | DTGS=0, Bolometer=1로 detector 정보 제공 |
 
-### 적용과 확인
-
-새 워크플로가 포함된 이 브랜치의 첫 Push부터 실행될 수 있지만, 저장소 권한 설정이 먼저 필요합니다. 이후 다른 feat/fix 브랜치도 최신 main의 워크플로를 포함해야 합니다. 아직 포함되지 않은 오래된 브랜치에는 최신 main을 반영하세요.
-
-1. feat/fix 브랜치에 커밋·Push합니다.
-2. **Actions → Auto-create pull request** 실행에서 생성된 PR URL 또는 기존 PR을 유지했다는 로그를 확인합니다.
-3. **FTIR analysis and tests**의 Python 분석·정답 생성·Windows 동기화 테스트와 별도 `test-auto-pr` 작업의 Node.js 테스트를 확인합니다. `.github/scripts/` 변경도 이 검증을 실행합니다. PR 생성 작업과 코드 검증은 서로 독립적으로 실행되므로 PR 생성 성공이 테스트 통과를 뜻하지 않습니다.
-
-자동 제공된 GITHUB_TOKEN이 생성한 PR은 보통 다른 `pull_request` 워크플로를 다시 시작하지 않습니다. 코드 검증은 기존 **Push 기반** 분석 워크플로를 사용합니다. 기존 분석 워크플로의 경로 필터(코드·데이터·테스트·의존성·워크플로 등)에 해당하는 변경에서 실행되며, README만 변경한 경우에는 분석을 자동 실행하지 않을 수 있습니다. 필요하면 **FTIR analysis and tests → Run workflow**에서 해당 브랜치를 선택해 실행하세요.
-
-권한 부족 시 PR 생성 작업은 실패로 표시하고 설정 안내·수동 비교 링크를 로그에 남깁니다. 같은 실행 안에서 생성을 반복하지 않습니다. 설정을 수정한 뒤 실패한 작업을 한 번 재실행하거나 새 Push를 하세요. 기존 FTIR 분석과 Windows 데이터 동기화 기능은 PR 생성 실패와 무관하게 유지됩니다.
-
-로컬 검증 명령:
+Detector 평균은 학습 fold의 동일 detector 정답 평균을 내는 단순 baseline입니다. 노이즈 규칙은 고정 임계값 이하의 안정 구간 시작점을 찾습니다. Random Forest는 25개 feature와 cutoff 사이의 관계를 학습합니다. 세 모델은 같은 원본 그룹 기준 Leave-One-Group-Out 분할로 비교하며, 결측값 대체도 학습 fold 안에서만 수행합니다.
 
 ```bash
+python -m pip install -e ".[test,ml]"
+python -m ftir_cutoff
+python -m ftir_cutoff.ml evaluate --baselines-only --output-dir results/ml_baselines
+python -m ftir_cutoff.ml evaluate --output-dir results/ml
 python -m pytest -q
-# PR 자동화 테스트에는 Node.js 24가 필요합니다. Windows 데이터 동기화 자체에는 필요 없습니다.
-node --test tests/test_auto_pr.cjs
 ```
+
+GitHub Actions도 위 순서로 실행하며, Artifacts의 `ml/`에서 CSV, scatter plot, 시료별 오차 PNG, 예비 모델을 받을 수 있습니다. **현재는 정답 9개뿐인 LOGO 예비 실험**입니다. 모델의 예측을 검증된 cutoff로 자동 등록하지 않습니다. feature 정의, 누출 방지, 평가 한계, 실제 결과 및 새 원본 예측법은 **[첫 ML 모델 안내](docs/first-ml-model.md)**를 확인하세요.
