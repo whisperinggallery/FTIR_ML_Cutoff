@@ -78,3 +78,9 @@ python -m ftir_cutoff --data-dir data --output-dir results --axis-tolerance 0.01
 자동화는 Python 3.12에서 의존성 설치, 합성 데이터 테스트, 업로드 데이터 분석을 실행합니다. 잘못된 파일 대응이 있으면 실행을 실패로 표시하고, 생성된 summary와 다른 정상 시료 결과는 실패 시에도 업로드합니다. 실제 데이터가 없을 때는 테스트가 분석 기능을 검증하고 실제 분석은 빈 결과를 생성합니다. GitHub Actions에서의 실제 실행 여부는 커밋·업로드 후 확인해야 합니다.
 
 의존성은 호환 버전 범위를 지정하며 완전한 버전 잠금은 하지 않았습니다. 장기 연구 재현성을 위해 사용한 입력 파일, 실행 옵션, 환경 버전을 함께 보관하세요.
+
+## 6. Windows 로컬 폴더 자동 동기화
+
+서로 다른 위치의 Raw `.dpt`와 Processed `.dat` 폴더를 지정하고, 이름이 일치하는 안정된 파일 쌍을 GitHub로 자동 반영할 수 있습니다. 파일명 `Bolo`로 detector를 판별하고 기존 사람 입력 metadata는 보존합니다. 로컬 삭제는 원격 삭제로 전파하지 않습니다.
+
+**[Windows 설치·GitHub 인증·2분 자동 실행·중지 방법](docs/windows-sync.md)**을 순서대로 따라 하세요. 전용 Clone에서 `scripts/Install-Sync.ps1`을 실행하면 폴더 경로를 입력하고 Windows 작업 스케줄러를 등록할 수 있습니다. Windows 등록은 사용자의 컴퓨터에서 직접 실행해야 합니다.
