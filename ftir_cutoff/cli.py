@@ -176,7 +176,9 @@ def plot_result(path, sample, detector, x, y, px, py, smooth, rms, slope, cutoff
     plt.close(fig)
 
 
-def run(data, output, tolerance=.01, smoothing_window=11, local_window=21):
+def run(data, output, tolerance=.01, smoothing_window=11, local_window=21, test_fraction=.2, split_seed='0'):
+    if not np.isfinite(test_fraction) or not 0 < test_fraction < 1:
+        raise ValueError('test_fraction must be finite and between 0 and 1 (exclusive)')
     if not np.isfinite(tolerance) or tolerance < 0:
         raise ValueError('axis tolerance must be finite and nonnegative')
     if any(w < 5 or w % 2 == 0 for w in (smoothing_window, local_window)):
@@ -198,7 +200,8 @@ def run(data, output, tolerance=.01, smoothing_window=11, local_window=21):
     for row in rows:
         sample = row.get('sample_id', '')
         counts[sample] = counts.get(sample, 0) + 1
-    # Resolve all pairs first so reused input files are rejected for every affected row.
+    # Resolve all pairs first so reused processed files are rejected for every affected row.
+    # A raw spectrum may deliberately have multiple cutoff histories.
     pairs, uses = {}, {}
     for i, row in enumerate(rows):
         try:
@@ -220,8 +223,8 @@ def run(data, output, tolerance=.01, smoothing_window=11, local_window=21):
                 raise ValueError('detector must be DTGS or Bolometer')
             raw = resolve_file(data / 'raw', row.get('raw_file', ''), sample, '.dpt')
             processed = resolve_file(data / 'processed', row.get('processed_file', ''), sample, '.dat')
-            if any(uses[p] > 1 for p in (raw, processed)):
-                raise ValueError('input file is assigned to multiple samples; no analysis performed')
+            if uses[processed] > 1:
+                raise ValueError('processed file is assigned to multiple samples; no analysis performed')
             used.update((raw, processed))
             x, y = read_spectrum(raw)
             px, py = read_spectrum(processed)
@@ -255,6 +258,8 @@ def run(data, output, tolerance=.01, smoothing_window=11, local_window=21):
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(results)
+    from .labels import write_training_labels
+    write_training_labels(data, results, output, test_fraction, split_seed)
     print(f'{len(results)} result rows; diagnostics: {artifacts}; summary: {output / "summary.csv"}')
     return 1 if any(r['status'] in ('error', 'unassigned') for r in results) else 0
 
@@ -266,9 +271,12 @@ def main(argv=None):
     parser.add_argument('--axis-tolerance', type=float, default=.01, help='absolute wavenumber tolerance in cm^-1')
     parser.add_argument('--smoothing-window', type=int, default=11)
     parser.add_argument('--local-window', type=int, default=21)
+    parser.add_argument('--test-fraction', type=float, default=.2, help='group hash test fraction (0 < value < 1)')
+    parser.add_argument('--split-seed', default='0', help='fixed seed for stable original-group train/test split')
     args = parser.parse_args(argv)
     try:
-        return run(args.data_dir, args.output_dir, args.axis_tolerance, args.smoothing_window, args.local_window)
+        return run(args.data_dir, args.output_dir, args.axis_tolerance, args.smoothing_window, args.local_window,
+                   args.test_fraction, args.split_seed)
     except (ValueError, OSError) as exc:
         print(f'Analysis configuration error: {exc}', file=sys.stderr)
         return 2
